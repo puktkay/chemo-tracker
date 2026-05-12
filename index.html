@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>化療進度追蹤系統</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'PingFang TC','Noto Sans TC','Microsoft JhengHei',sans-serif; background: linear-gradient(135deg,#f0f4ff 0%,#faf5ff 50%,#f0fdf4 100%); min-height: 100vh; }
+input,textarea,button,select { font-family: inherit; }
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:#f1f5f9}::-webkit-scrollbar-thumb{background:#c7d2fe;border-radius:3px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ====== 設定區 ======
+const PASSWORD = "chemo2026";
+const API_SECRET = "chemo2026";
+const AUTH_KEY = "chemo_auth_v1";
+// API_URL：留空 = 本機儲存；填入 Cloudflare Tunnel 網址 = 連線桌機伺服器
+// ====================
+
+const DEFAULT_PATIENTS = [
+  { id:1, name:"林芋秀", mrn:"1523219", regimen:"Phesgo", totalCycles:18, notes:"", cycles: Array.from({length:18},()=>({date:""})) },
+  { id:2, name:"王菊卿", mrn:"10043953", regimen:"Phesgo", totalCycles:18, notes:"", cycles: Array.from({length:18},()=>({date:""})) },
+  { id:3, name:"李秀鳴", mrn:"10013382", regimen:"Herceptin SC", totalCycles:9, notes:"", cycles:[{date:"2026-04-13"},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""}] },
+  { id:4, name:"劉詩吟", mrn:"5388725", regimen:"Enhertu", totalCycles:18, notes:"", cycles:[{date:"2025-08-29"},{date:"2025-09-19"},{date:"2025-10-10"},{date:"2025-11-21"},{date:"2026-01-02"},{date:"2026-01-23"},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""}] },
+  { id:5, name:"黃娟娟", mrn:"10007535", regimen:"Enhertu", totalCycles:18, notes:"", cycles:[{date:"2026-04-03"},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""}] },
+  { id:6, name:"邱宇萱", mrn:"5601936", regimen:"Keytruda", totalCycles:17, notes:"", cycles:[{date:"2026-02-11"},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""}] },
+  { id:7, name:"曾鳳珠", mrn:"2248887", regimen:"Abemaciclib", totalCycles:19, notes:"", cycles:[{date:"2025-07-24"},{date:"2025-08-06"},{date:"2025-09-09"},{date:"2025-09-23"},{date:"2025-10-21"},{date:"2025-11-18"},{date:"2025-12-16"},{date:"2026-01-12"},{date:"2026-02-10"},{date:"2026-03-09"},{date:"2026-03-23"},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""}] },
+  { id:8, name:"賴門汝", mrn:"4291982", regimen:"Ribociclib", totalCycles:9, notes:"", cycles:[{date:"2025-07-18"},{date:"2025-08-15"},{date:"2025-09-12"},{date:"2025-10-10"},{date:"2025-11-07"},{date:"2025-12-05"},{date:"2026-01-30"},{date:"2026-02-27"},{date:""}] },
+  { id:9, name:"黃素雲", mrn:"2232093", regimen:"Kadcyla", totalCycles:14, notes:"術後病人有殘餘腫瘤，為non-pCR，後續申請Kadcyla治療", cycles:[{date:"2025-01-16"},{date:"2025-02-07"},{date:"2025-02-27"},{date:"2025-03-20"},{date:"2025-04-10"},{date:"2025-05-01"},{date:"2025-06-27"},{date:"2025-07-18"},{date:"2025-08-08"},{date:"2025-08-29"},{date:"2025-09-19"},{date:"2025-10-10"},{date:"2025-10-31"},{date:"2025-11-21"}] },
+  { id:10, name:"穆世薔", mrn:"9073333", regimen:"Palbociclib", totalCycles:15, notes:"", cycles:[{date:"2025-02-26"},{date:"2025-03-25"},{date:"2025-04-22"},{date:"2025-05-13"},{date:"2025-06-17"},{date:"2025-07-05"},{date:"2025-08-02"},{date:"2025-10-07"},{date:"2025-10-28"},{date:"2025-11-25"},{date:"2026-01-19"},{date:"2026-02-17"},{date:"2026-03-25"},{date:"2026-04-13"},{date:""}] },
+  { id:11, name:"王菊卿", mrn:"10043953", regimen:"Keytruda", totalCycles:17, notes:"", cycles:[{date:"2025-10-28"},{date:"2025-11-25"},{date:"2025-12-16"},{date:"2026-01-20"},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""}] },
+  { id:12, name:"劉淑幸", mrn:"2153308", regimen:"Keytruda", totalCycles:17, notes:"", cycles:[{date:"2025-08-15"},{date:"2025-09-05"},{date:"2025-10-03"},{date:"2025-10-24"},{date:"2025-12-12"},{date:"2026-01-08"},{date:"2026-02-06"},{date:"2026-02-27"},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""},{date:""}] },
+];
+
+const STATUS_CONFIG = {
+  completed:{ label:"已完成", color:"#22c55e", bg:"#dcfce7" },
+  pending:  { label:"待施打", color:"#94a3b8", bg:"#f1f5f9" },
+  scheduled:{ label:"已排程", color:"#3b82f6", bg:"#dbeafe" },
+};
+
+const inputStyle = { width:"100%", border:"1.5px solid #e2e8f0", borderRadius:8, padding:"8px 12px", fontSize:14, boxSizing:"border-box", fontFamily:"inherit", outline:"none", background:"#fff" };
+
+// ── Login ──────────────────────────────────────────────────────────
+function LoginScreen({ onLogin }) {
+  const [pw, setPw] = useState("");
+  const [error, setError] = useState("");
+  const [shake, setShake] = useState(false);
+
+  function tryLogin() {
+    if (pw !== PASSWORD) {
+      setError("密碼錯誤"); setShake(true); setPw("");
+      setTimeout(() => setShake(false), 500); return;
+    }
+    sessionStorage.setItem(AUTH_KEY, "1");
+    onLogin();
+  }
+
+  return (
+    <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"linear-gradient(135deg,#4f46e5,#7c3aed,#6d28d9)", padding:20 }}>
+      <div style={{ background:"#fff", borderRadius:24, padding:"40px 32px", width:"100%", maxWidth:360, boxShadow:"0 32px 64px rgba(0,0,0,.25)", textAlign:"center", animation: shake?"shake .4s":"none" }}>
+        <div style={{ fontSize:52, marginBottom:10 }}>🔒</div>
+        <h2 style={{ fontSize:20, color:"#1e293b", fontWeight:800, marginBottom:4 }}>化療進度追蹤系統</h2>
+        <p style={{ color:"#94a3b8", fontSize:13, marginBottom:28 }}>請輸入密碼以繼續</p>
+        <input type="password" value={pw} onChange={e=>{ setPw(e.target.value); setError(""); }}
+          onKeyDown={e=>e.key==="Enter"&&tryLogin()} placeholder="輸入密碼" autoFocus
+          style={{ ...inputStyle, textAlign:"center", letterSpacing:4, marginBottom:8, border: error?"2px solid #ef4444":"1.5px solid #e2e8f0" }} />
+        {error && <div style={{ color:"#ef4444", fontSize:13, marginBottom:8 }}>❌ {error}</div>}
+        <button onClick={tryLogin} style={{ width:"100%", background:"linear-gradient(135deg,#6366f1,#8b5cf6)", color:"#fff", border:"none", borderRadius:10, padding:"13px 0", fontSize:15, fontWeight:700, cursor:"pointer", marginTop:4, boxShadow:"0 4px 14px rgba(99,102,241,.4)" }}>
+          進入系統
+        </button>
+      </div>
+      <style>{`@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}`}</style>
+    </div>
+  );
+}
+
+// ── Helpers ────────────────────────────────────────────────────────
+function Field({ label, children }) {
+  return <div style={{ marginBottom:14 }}>
+    <label style={{ fontSize:12, color:"#64748b", fontWeight:600, display:"block", marginBottom:4 }}>{label}</label>
+    {children}
+  </div>;
+}
+
+function Modal({ title, onSave, onCancel, children, saveLabel="儲存" }) {
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:16 }}>
+      <div style={{ background:"#fff", borderRadius:16, padding:28, width:"100%", maxWidth:400, boxShadow:"0 24px 48px rgba(0,0,0,.2)", maxHeight:"90vh", overflowY:"auto" }}>
+        <h3 style={{ margin:"0 0 20px", fontSize:17, color:"#1e293b" }}>{title}</h3>
+        {children}
+        <div style={{ display:"flex", gap:10, marginTop:8 }}>
+          <button onClick={onSave} style={{ flex:1, background:"linear-gradient(135deg,#6366f1,#8b5cf6)", color:"#fff", border:"none", borderRadius:9, padding:"11px 0", fontSize:14, fontWeight:700, cursor:"pointer" }}>{saveLabel}</button>
+          <button onClick={onCancel} style={{ flex:1, background:"#f1f5f9", color:"#475569", border:"none", borderRadius:9, padding:"11px 0", fontSize:14, cursor:"pointer" }}>取消</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CycleCell({ cycle, cycleNum, onUpdate }) {
+  const [editing, setEditing] = useState(false);
+  const [dateVal, setDateVal] = useState(cycle.date || "");
+  useEffect(() => setDateVal(cycle.date || ""), [cycle.date]);
+  const status = cycle.date ? (new Date(cycle.date) <= new Date() ? "completed" : "scheduled") : "pending";
+  const cfg = STATUS_CONFIG[status];
+  function save() { onUpdate({ ...cycle, date:dateVal }); setEditing(false); }
+  if (editing) return (
+    <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+      <input type="date" value={dateVal} onChange={e=>setDateVal(e.target.value)} autoFocus
+        style={{ border:"1.5px solid #6366f1", borderRadius:6, padding:"4px 6px", fontSize:12, width:130, fontFamily:"inherit", background:"#fff" }} />
+      <div style={{ display:"flex", gap:4 }}>
+        <button onClick={save} style={{ flex:1, background:"#6366f1", color:"#fff", border:"none", borderRadius:5, padding:"3px 0", fontSize:11, cursor:"pointer" }}>確認</button>
+        <button onClick={()=>setEditing(false)} style={{ flex:1, background:"#e2e8f0", color:"#475569", border:"none", borderRadius:5, padding:"3px 0", fontSize:11, cursor:"pointer" }}>關閉</button>
+      </div>
+      {cycle.date && <button onClick={()=>{ onUpdate({...cycle,date:""}); setDateVal(""); setEditing(false); }}
+        style={{ background:"#fee2e2", color:"#ef4444", border:"1px solid #fca5a5", borderRadius:5, padding:"3px 0", fontSize:11, cursor:"pointer", width:"100%" }}>
+        ✕ 取消施打紀錄
+      </button>}
+    </div>
+  );
+  return (
+    <div onClick={()=>setEditing(true)} title="點擊設定日期"
+      style={{ background:cfg.bg, color:cfg.color, border:`1.5px solid ${cfg.color}`, borderRadius:8, padding:"5px 8px", cursor:"pointer", minWidth:90, textAlign:"center", userSelect:"none" }}>
+      <div style={{ fontSize:10, fontWeight:700 }}>第 {cycleNum} 次</div>
+      <div style={{ fontSize:11, marginTop:2, fontWeight:600 }}>{cfg.label}</div>
+      {cycle.date && <div style={{ fontSize:10, marginTop:1, opacity:.8 }}>{new Date(cycle.date).toLocaleDateString("zh-TW",{month:"2-digit",day:"2-digit"})}</div>}
+    </div>
+  );
+}
+
+function ProgressBar({ done, total }) {
+  const pct = total > 0 ? Math.round((done/total)*100) : 0;
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+      <div style={{ flex:1, height:8, background:"#e2e8f0", borderRadius:99, overflow:"hidden" }}>
+        <div style={{ width:`${pct}%`, height:"100%", borderRadius:99, background: pct===100?"#22c55e":"linear-gradient(90deg,#6366f1,#8b5cf6)", transition:"width .4s" }} />
+      </div>
+      <span style={{ fontSize:12, color:"#64748b", minWidth:40, textAlign:"right" }}>{done}/{total}</span>
+    </div>
+  );
+}
+
+function PatientCard({ patient, onUpdate, onDelete }) {
+  const [expanded, setExpanded] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({...patient});
+  const [confirmDel, setConfirmDel] = useState(false);
+  const completed = patient.cycles.filter(c=>c.date&&new Date(c.date)<=new Date()).length;
+
+  function saveEdit() {
+    const count = parseInt(draft.totalCycles)||patient.cycles.length;
+    let cycles=[...patient.cycles];
+    if(count>cycles.length){for(let i=cycles.length;i<count;i++)cycles.push({date:""});}
+    else cycles=cycles.slice(0,count);
+    onUpdate({...draft,cycles,totalCycles:count});
+    setEditing(false);
+  }
+  const sf = k => e => setDraft(d=>({...d,[k]:e.target.value}));
+
+  return (
+    <div style={{ background:"#fff", border:"1.5px solid #e2e8f0", borderRadius:16, overflow:"hidden", boxShadow:"0 2px 12px rgba(99,102,241,.07)" }}>
+      <div style={{ background:"linear-gradient(135deg,#6366f1,#8b5cf6)", padding:"14px 18px", display:"flex", alignItems:"center", gap:12 }}>
+        <div style={{ width:40, height:40, borderRadius:"50%", background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, fontWeight:700, color:"#fff", flexShrink:0 }}>
+          {patient.name?patient.name[0]:"?"}
+        </div>
+        <div style={{ flex:1 }}>
+          <div style={{ color:"#fff", fontWeight:700, fontSize:15 }}>{patient.name||"（未命名）"}</div>
+          <div style={{ color:"rgba(255,255,255,.75)", fontSize:12, marginTop:1 }}>病歷號：{patient.mrn||"—"} ｜ {patient.regimen||"未設定"}</div>
+        </div>
+        <div style={{ display:"flex", gap:6 }}>
+          <button onClick={()=>{setDraft({...patient});setEditing(true);}} style={{ background:"rgba(255,255,255,.2)", border:"none", borderRadius:7, color:"#fff", padding:"5px 10px", fontSize:12, cursor:"pointer" }}>✏️</button>
+          <button onClick={()=>setExpanded(e=>!e)} style={{ background:"rgba(255,255,255,.15)", border:"none", borderRadius:7, color:"#fff", padding:"5px 10px", fontSize:12, cursor:"pointer" }}>{expanded?"▲":"▼"}</button>
+          <button onClick={()=>setConfirmDel(true)} style={{ background:"rgba(255,80,80,.3)", border:"none", borderRadius:7, color:"#fff", padding:"5px 10px", fontSize:12, cursor:"pointer" }}>🗑</button>
+        </div>
+      </div>
+      <div style={{ padding:"10px 18px", background:"#f8fafc", borderBottom:"1px solid #f1f5f9" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
+          <span style={{ fontSize:12, color:"#64748b", fontWeight:600 }}>療程進度</span>
+          <span style={{ fontSize:12, fontWeight:700, color:completed===patient.cycles.length&&patient.cycles.length>0?"#22c55e":"#6366f1" }}>
+            {completed===patient.cycles.length&&patient.cycles.length>0?"✅ 全部完成":`${completed} / ${patient.cycles.length} 次`}
+          </span>
+        </div>
+        <ProgressBar done={completed} total={patient.cycles.length} />
+      </div>
+      {expanded && <div style={{ padding:"14px 18px" }}>
+        <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+          {patient.cycles.length===0
+            ? <div style={{ color:"#94a3b8", fontSize:13 }}>尚未設定療程次數</div>
+            : patient.cycles.map((c,i)=><CycleCell key={i} cycle={c} cycleNum={i+1} onUpdate={u=>onUpdate({...patient,cycles:patient.cycles.map((x,j)=>j===i?u:x)})} />)
+          }
+        </div>
+        <div style={{ marginTop:14 }}>
+          <div style={{ fontSize:12, color:"#94a3b8", fontWeight:600, marginBottom:5 }}>📝 備註</div>
+          <textarea value={patient.notes||""} onChange={e=>onUpdate({...patient,notes:e.target.value})} placeholder="輸入備註..." rows={2}
+            style={{ width:"100%", border:"1.5px solid #e2e8f0", borderRadius:8, padding:"8px 12px", fontSize:13, boxSizing:"border-box", fontFamily:"inherit", outline:"none", resize:"vertical", color:"#475569", background:"#f8fafc", lineHeight:1.6 }}
+            onFocus={e=>e.target.style.borderColor="#6366f1"} onBlur={e=>e.target.style.borderColor="#e2e8f0"} />
+        </div>
+      </div>}
+      {editing && <Modal title="編輯病人資料" onSave={saveEdit} onCancel={()=>setEditing(false)}>
+        <Field label="姓名"><input type="text" value={draft.name||""} onChange={sf("name")} placeholder="病人姓名" style={inputStyle}/></Field>
+        <Field label="病歷號"><input type="text" value={draft.mrn||""} onChange={sf("mrn")} placeholder="MRN" style={inputStyle}/></Field>
+        <Field label="化療組合"><input type="text" value={draft.regimen||""} onChange={sf("regimen")} placeholder="FOLFOX、AC、R-CHOP..." style={inputStyle}/></Field>
+        <Field label="總療程次數"><input type="number" min={1} max={99} value={draft.totalCycles||""} onChange={sf("totalCycles")} placeholder="例如：6" style={inputStyle}/></Field>
+      </Modal>}
+      {confirmDel && <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:16 }}>
+        <div style={{ background:"#fff", borderRadius:16, padding:28, maxWidth:320, width:"100%", textAlign:"center", boxShadow:"0 24px 48px rgba(0,0,0,.2)" }}>
+          <div style={{ fontSize:36, marginBottom:12 }}>⚠️</div>
+          <div style={{ fontWeight:700, fontSize:16, marginBottom:8 }}>確認刪除？</div>
+          <div style={{ fontSize:13, color:"#64748b", marginBottom:20 }}>將刪除「{patient.name}」的所有資料</div>
+          <div style={{ display:"flex", gap:10 }}>
+            <button onClick={()=>{onDelete();setConfirmDel(false);}} style={{ flex:1, background:"#ef4444", color:"#fff", border:"none", borderRadius:9, padding:"11px 0", fontSize:14, fontWeight:700, cursor:"pointer" }}>確認刪除</button>
+            <button onClick={()=>setConfirmDel(false)} style={{ flex:1, background:"#f1f5f9", color:"#475569", border:"none", borderRadius:9, padding:"11px 0", fontSize:14, cursor:"pointer" }}>取消</button>
+          </div>
+        </div>
+      </div>}
+    </div>
+  );
+}
+
+// ── Excel ──────────────────────────────────────────────────────────
+function exportExcel(patients) {
+  const maxCycles = Math.max(...patients.map(p=>p.cycles.length), 1);
+  const headers = ["姓名","病歷號","化療組合","總療程次數","備註",...Array.from({length:maxCycles},(_,i)=>`第${i+1}次`)];
+  const rows = patients.map(p=>[
+    p.name, p.mrn, p.regimen, p.totalCycles, p.notes||"",
+    ...p.cycles.map(c=>c.date||""),
+    ...Array(maxCycles-p.cycles.length).fill("")
+  ]);
+  const ws = XLSX.utils.aoa_to_sheet([headers,...rows]);
+  ws["!cols"] = [{wch:10},{wch:12},{wch:16},{wch:10},{wch:30},...Array(maxCycles).fill({wch:12})];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "化療進度");
+  XLSX.writeFile(wb, `化療進度_${new Date().toLocaleDateString("zh-TW").replace(/\//g,"-")}.xlsx`);
+}
+
+function importExcel(file, onImport) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, { type:"binary", cellDates:true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header:1 });
+      const header = rows[0];
+      const patients = rows.slice(1).filter(r=>r[0]).map((r,i)=>{
+        const totalCycles = parseInt(r[3])||6;
+        const dates = r.slice(5,5+totalCycles).map(v=>{
+          if (!v) return "";
+          if (v instanceof Date) return v.toISOString().slice(0,10);
+          const s = String(v).trim();
+          if (s.match(/^\d{4}-\d{2}-\d{2}$/)) return s;
+          return "";
+        });
+        const cycles = Array.from({length:totalCycles},(_,j)=>({date:dates[j]||""}));
+        return { id:Date.now()+i, name:r[0]||"", mrn:String(r[1]||""), regimen:r[2]||"", totalCycles, notes:r[4]||"", cycles };
+      });
+      onImport(patients);
+    } catch(err) { alert("匯入失敗：" + err.message); }
+  };
+  reader.readAsBinaryString(file);
+}
+
+// ── Main App ───────────────────────────────────────────────────────
+function MainApp({ apiUrl }) {
+  const [patients, setPatients] = useState(DEFAULT_PATIENTS);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newP, setNewP] = useState({ name:"", mrn:"", regimen:"", totalCycles:"" });
+  const [syncStatus, setSyncStatus] = useState("idle"); // idle | loading | saving | saved | error | local
+  const [lastSync, setLastSync] = useState(null);
+  const saveTimer = useRef(null);
+  const importRef = useRef();
+
+  // ── API helpers ──
+  async function apiFetch(path, opts={}) {
+    const url = `${apiUrl}${path}`;
+    return fetch(url, { ...opts, headers:{ "Content-Type":"application/json", "X-API-Key":API_SECRET, ...(opts.headers||{}) } });
+  }
+
+  // ── Load on mount ──
+  useEffect(() => {
+    if (!apiUrl) {
+      // 無伺服器：用 localStorage
+      try {
+        const saved = localStorage.getItem("chemo_tracker_v1");
+        if (saved) setPatients(JSON.parse(saved));
+      } catch(e){}
+      setSyncStatus("local");
+      return;
+    }
+    setSyncStatus("loading");
+    apiFetch("/patients")
+      .then(r=>r.json())
+      .then(data=>{
+        if (data.patients && data.patients.length > 0) {
+          setPatients(data.patients);
+          setLastSync(new Date());
+          setSyncStatus("saved");
+        } else {
+          // 伺服器是空的，上傳預設資料
+          saveToServer(DEFAULT_PATIENTS);
+        }
+      })
+      .catch(()=>{ setSyncStatus("error"); });
+  }, []);
+
+  // ── Save to server (debounced) ──
+  function saveToServer(data) {
+    if (!apiUrl) {
+      try { localStorage.setItem("chemo_tracker_v1", JSON.stringify(data)); setSyncStatus("saved"); } catch(e){}
+      return;
+    }
+    setSyncStatus("saving");
+    apiFetch("/patients", { method:"POST", body:JSON.stringify({patients:data}) })
+      .then(r=>r.json())
+      .then(()=>{ setSyncStatus("saved"); setLastSync(new Date()); })
+      .catch(()=>setSyncStatus("error"));
+  }
+
+  function updatePatients(newList) {
+    setPatients(newList);
+    setSyncStatus("saving");
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(()=>saveToServer(newList), 800);
+  }
+
+  // ── Excel import ──
+  function handleImport(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    importExcel(file, imported => {
+      if (window.confirm(`確認匯入 ${imported.length} 位病人？（將覆蓋現有資料）`)) {
+        updatePatients(imported);
+      }
+    });
+    e.target.value = "";
+  }
+
+  const totalCompleted = patients.reduce((s,p)=>s+p.cycles.filter(c=>c.date&&new Date(c.date)<=new Date()).length,0);
+  const totalCycles = patients.reduce((s,p)=>s+p.cycles.length,0);
+
+  const statusIcon = { idle:"", loading:"⟳ 載入中", saving:"⟳ 同步中", saved:"✓ 已同步", error:"⚠ 連線失敗", local:"💾 本機儲存" };
+  const statusColor = { saving:"rgba(255,220,100,.9)", saved:"rgba(255,255,255,.7)", error:"#fca5a5", loading:"rgba(255,220,100,.9)", local:"rgba(255,255,255,.6)", idle:"transparent" };
+
+  const snf = k => e => setNewP(p=>({...p,[k]:e.target.value}));
+
+  function addPatient() {
+    if (!newP.name && !newP.mrn) return;
+    const count = parseInt(newP.totalCycles)||1;
+    const list = [...patients, {...newP, id:Date.now(), totalCycles:count, cycles:Array.from({length:count},()=>({date:""})), notes:""}];
+    updatePatients(list);
+    setNewP({name:"",mrn:"",regimen:"",totalCycles:""});
+    setShowAdd(false);
+  }
+
+  return (
+    <div style={{ minHeight:"100vh", paddingBottom:40 }}>
+      {/* Header */}
+      <div style={{ background:"linear-gradient(135deg,#4f46e5 0%,#7c3aed 60%,#6d28d9 100%)", padding:"20px 20px 24px", boxShadow:"0 4px 24px rgba(79,70,229,.25)" }}>
+        <div style={{ maxWidth:700, margin:"0 auto" }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <span style={{ fontSize:26 }}>💊</span>
+              <div>
+                <h1 style={{ margin:0, fontSize:20, color:"#fff", fontWeight:800 }}>化療進度追蹤系統</h1>
+                <div style={{ color:"rgba(255,255,255,.6)", fontSize:11 }}>Chemotherapy Progress Tracker</div>
+              </div>
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6 }}>
+              <div style={{ fontSize:11, color:statusColor[syncStatus] }}>{statusIcon[syncStatus]}{lastSync&&syncStatus==="saved"?` ${lastSync.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit"})}`:""}</div>
+              <button onClick={()=>{ sessionStorage.removeItem(AUTH_KEY); window.location.reload(); }}
+                style={{ background:"rgba(255,255,255,.15)", border:"none", borderRadius:7, color:"#fff", padding:"4px 10px", fontSize:11, cursor:"pointer" }}>
+                🔒 登出
+              </button>
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:10, marginTop:14 }}>
+            {[{label:"病人總數",value:patients.length,icon:"👤"},{label:"已完成療程",value:totalCompleted,icon:"✅"},{label:"總療程數",value:totalCycles,icon:"📋"}].map(s=>(
+              <div key={s.label} style={{ flex:1, background:"rgba(255,255,255,.15)", borderRadius:12, padding:"10px 12px" }}>
+                <div style={{ fontSize:16 }}>{s.icon}</div>
+                <div style={{ color:"#fff", fontSize:20, fontWeight:800, lineHeight:1.1 }}>{s.value}</div>
+                <div style={{ color:"rgba(255,255,255,.6)", fontSize:10, marginTop:1 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ maxWidth:700, margin:"0 auto", padding:"16px 16px 0" }}>
+        {/* Action buttons */}
+        <div style={{ display:"flex", gap:10, marginBottom:14 }}>
+          <button onClick={()=>setShowAdd(true)} style={{ flex:2, background:"linear-gradient(135deg,#6366f1,#8b5cf6)", color:"#fff", border:"none", borderRadius:12, padding:"12px 0", fontSize:14, fontWeight:700, cursor:"pointer", boxShadow:"0 4px 14px rgba(99,102,241,.35)" }}>
+            ＋ 新增病人
+          </button>
+          <button onClick={()=>exportExcel(patients)} style={{ flex:1, background:"#fff", color:"#16a34a", border:"2px solid #16a34a", borderRadius:12, padding:"12px 0", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            📥 匯出 Excel
+          </button>
+          <button onClick={()=>importRef.current.click()} style={{ flex:1, background:"#fff", color:"#6366f1", border:"2px solid #6366f1", borderRadius:12, padding:"12px 0", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            📤 匯入 Excel
+          </button>
+          <input ref={importRef} type="file" accept=".xlsx,.xls" onChange={handleImport} style={{ display:"none" }} />
+        </div>
+
+        {syncStatus==="error" && (
+          <div style={{ background:"#fef2f2", border:"1.5px solid #fca5a5", borderRadius:10, padding:"10px 14px", marginBottom:14, fontSize:13, color:"#dc2626", display:"flex", alignItems:"center", gap:8 }}>
+            ⚠️ 無法連線到伺服器，目前顯示本機快取資料。請確認桌機伺服器正在運行。
+          </div>
+        )}
+
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          {patients.map(p=>(
+            <PatientCard key={p.id} patient={p}
+              onUpdate={u=>updatePatients(patients.map(x=>x.id===p.id?{...u,id:p.id}:x))}
+              onDelete={()=>updatePatients(patients.filter(x=>x.id!==p.id))} />
+          ))}
+        </div>
+        {patients.length===0 && <div style={{ textAlign:"center", padding:"48px 20px", color:"#94a3b8" }}>
+          <div style={{ fontSize:48, marginBottom:12 }}>🏥</div>
+          <div style={{ fontSize:15, fontWeight:600 }}>尚無病人資料</div>
+        </div>}
+      </div>
+
+      {showAdd && <Modal title="新增病人" onSave={addPatient} onCancel={()=>setShowAdd(false)}>
+        <Field label="姓名"><input type="text" value={newP.name} onChange={snf("name")} placeholder="病人姓名" style={inputStyle}/></Field>
+        <Field label="病歷號"><input type="text" value={newP.mrn} onChange={snf("mrn")} placeholder="MRN" style={inputStyle}/></Field>
+        <Field label="化療組合"><input type="text" value={newP.regimen} onChange={snf("regimen")} placeholder="FOLFOX、AC、R-CHOP..." style={inputStyle}/></Field>
+        <Field label="總療程次數"><input type="number" min={1} max={99} value={newP.totalCycles} onChange={snf("totalCycles")} placeholder="例如：6" style={inputStyle}/></Field>
+      </Modal>}
+    </div>
+  );
+}
+
+// ── Root ───────────────────────────────────────────────────────────
+function App() {
+  const [authed, setAuthed] = useState(false);
+  const API_URL = ""; // 之後填入 Cloudflare Tunnel 網址
+  if (!authed) return <LoginScreen onLogin={()=>setAuthed(true)} />;
+  return <MainApp apiUrl={API_URL} />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
